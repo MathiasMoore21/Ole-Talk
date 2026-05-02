@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ole Talk 🇹🇹</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗣️</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-bg">
+    <div class="auth-orb auth-orb-1"></div>
+    <div class="auth-orb auth-orb-2"></div>
+    <div class="auth-orb auth-orb-3"></div>
+  </div>
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="logo-icon">🗣️</span>
+      <span class="logo-text">Ole Talk</span>
+    </div>
+    <p class="auth-tagline">Where every Trini finds their voice.</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Log In</button>
+      <button class="auth-tab" id="tab-signup" onclick="switchTab('signup')">Sign Up</button>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div id="login-form" class="auth-form">
+      <div class="field-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email" />
+      </div>
+      <div class="field-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+      <button class="btn-primary btn-full" onclick="login()">
+        <span id="login-btn-text">Log in</span>
+      </button>
+      <p class="auth-hint">New here? <a onclick="switchTab('signup')">Create account →</a></p>
+    </div>
+
+    <!-- SIGNUP FORM -->
+    <div id="signup-form" class="auth-form hidden">
+      <div class="field-group">
+        <label>Display Name</label>
+        <input type="text" id="signup-display" placeholder="e.g. Trini Gyul" maxlength="40" />
+      </div>
+      <div class="field-group">
+        <label>Username</label>
+        <div class="input-prefix">
+          <span>@</span>
+          <input type="text" id="signup-username" placeholder="triniqueen" maxlength="20" />
+        </div>
+      </div>
+      <div class="field-group">
+        <label>Email</label>
+        <input type="email" id="signup-email" placeholder="your@email.com" autocomplete="email" />
+      </div>
+      <div class="field-group">
+        <label>Password</label>
+        <input type="password" id="signup-password" placeholder="min 6 characters" autocomplete="new-password" />
+      </div>
+      <button class="btn-primary btn-full" onclick="signup()">
+        <span id="signup-btn-text">Join the lime 🎉</span>
+      </button>
+      <p class="auth-hint">Already have an account? <a onclick="switchTab('login')">Log in →</a></p>
+    </div>
+
+    <div id="auth-error" class="auth-error hidden"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="app hidden">
+
+  <!-- SIDEBAR LEFT -->
+  <aside class="sidebar-left">
+    <div class="sidebar-logo">
+      <span class="logo-icon">🗣️</span>
+      <span class="logo-text">Ole Talk</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a class="nav-item active" id="nav-home" onclick="showPage('home')">
+        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span>Home</span>
+      </a>
+      <a class="nav-item" id="nav-explore" onclick="showPage('explore')">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <span>Explore</span>
+      </a>
+      <a class="nav-item" id="nav-notifications" onclick="showPage('notifications')">
+        <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        <span>Alerts</span>
+        <span class="notif-badge hidden" id="notif-count"></span>
+      </a>
+      <a class="nav-item" id="nav-profile" onclick="showPage('profile')">
+        <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <span>Profile</span>
+      </a>
+    </nav>
+
+    <button class="btn-post-cta" onclick="openPostModal()">Lemme Talk 🗣️</button>
+
+    <div class="sidebar-user" id="sidebar-user">
+      <div class="sidebar-avatar" id="sidebar-avatar"></div>
+      <div class="sidebar-user-info">
+        <span class="sidebar-display" id="sidebar-display"></span>
+        <span class="sidebar-handle" id="sidebar-handle"></span>
+      </div>
+      <button class="logout-btn" onclick="logout()" title="Log out">↩</button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- HOME PAGE -->
+    <div id="page-home" class="page active">
+      <div class="page-header">
+        <h1>Home</h1>
+        <div class="feed-tabs">
+          <button class="feed-tab active" onclick="switchFeed('for-you', this)">For You</button>
+          <button class="feed-tab" onclick="switchFeed('following', this)">Following</button>
+        </div>
+      </div>
+
+      <!-- COMPOSE BOX -->
+      <div class="compose-box" id="compose-box">
+        <div class="compose-avatar" id="compose-avatar"></div>
+        <div class="compose-inner">
+          <textarea id="compose-text" placeholder="What's de lime like today? 🌴" maxlength="280" oninput="updateCharCount()"></textarea>
+          <div class="compose-actions">
+            <div class="char-counter">
+              <svg class="char-ring" viewBox="0 0 36 36">
+                <circle class="char-ring-bg" cx="18" cy="18" r="15" />
+                <circle class="char-ring-fill" id="char-ring-fill" cx="18" cy="18" r="15" />
+              </svg>
+              <span id="char-count-num" class="char-count-num hidden">0</span>
+            </div>
+            <button class="btn-primary btn-post" onclick="createPost()">
+              <span id="post-btn-text">Talk</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEED -->
+      <div id="feed" class="feed">
+        <div class="feed-loading" id="feed-loading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPLORE PAGE -->
+    <div id="page-explore" class="page">
+      <div class="page-header">
+        <h1>Explore</h1>
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" id="search-input" placeholder="Search Ole Talk..." oninput="debounceSearch()" />
+        </div>
+      </div>
+      <div id="trending-section">
+        <h2 class="section-title">🔥 Trending in Trinidad</h2>
+        <div id="trending-list" class="trending-list"></div>
+      </div>
+      <div id="search-results" class="feed hidden"></div>
+    </div>
+
+    <!-- NOTIFICATIONS PAGE -->
+    <div id="page-notifications" class="page">
+      <div class="page-header">
+        <h1>Alerts</h1>
+        <button class="mark-read-btn" onclick="markAllRead()">Mark all read</button>
+      </div>
+      <div id="notifications-list" class="notifications-list">
+        <div class="feed-loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- PROFILE PAGE -->
+    <div id="page-profile" class="page">
+      <div id="profile-content">
+        <div class="feed-loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- RIGHT SIDEBAR -->
+  <aside class="sidebar-right">
+    <div class="sidebar-section">
+      <h3>🔥 Who to Follow</h3>
+      <div id="who-to-follow" class="who-list"></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>🌴 Trending</h3>
+      <div id="trending-sidebar" class="trending-mini"></div>
+    </div>
+    <p class="sidebar-footer">Ole Talk · Made by <strong>Your Name</strong> · 🇹🇹 2025</p>
+  </aside>
+
+  <!-- MOBILE BOTTOM NAV -->
+  <nav class="mobile-nav">
+    <a class="mobile-nav-item active" id="mnav-home" onclick="showPage('home')">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    </a>
+    <a class="mobile-nav-item" id="mnav-explore" onclick="showPage('explore')">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+    </a>
+    <a class="mobile-nav-item mobile-post-btn" onclick="openPostModal()">
+      <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </a>
+    <a class="mobile-nav-item" id="mnav-notifications" onclick="showPage('notifications')">
+      <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+    </a>
+    <a class="mobile-nav-item" id="mnav-profile" onclick="showPage('profile')">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+    </a>
+  </nav>
+</div>
+
+<!-- POST MODAL (mobile compose) -->
+<div id="post-modal" class="modal-overlay hidden" onclick="closePostModal(event)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <button class="modal-close" onclick="closePostModal()">✕</button>
+    </div>
+    <div class="compose-box no-border">
+      <div class="compose-avatar" id="modal-avatar"></div>
+      <div class="compose-inner">
+        <textarea id="modal-compose-text" placeholder="What's de lime like today? 🌴" maxlength="280" oninput="updateModalCharCount()"></textarea>
+        <div class="compose-actions">
+          <div class="char-counter">
+            <svg class="char-ring" viewBox="0 0 36 36">
+              <circle class="char-ring-bg" cx="18" cy="18" r="15" />
+              <circle class="char-ring-fill" id="modal-char-ring" cx="18" cy="18" r="15" />
+            </svg>
+          </div>
+          <button class="btn-primary btn-post" onclick="createPostFromModal()">Talk</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COMMENT MODAL -->
+<div id="comment-modal" class="modal-overlay hidden" onclick="closeCommentModal(event)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <button class="modal-close" onclick="closeCommentModal()">✕</button>
+      <span class="modal-title">Reply</span>
+    </div>
+    <div id="comment-original-post"></div>
+    <div class="compose-box no-border">
+      <div class="compose-avatar" id="comment-avatar"></div>
+      <div class="compose-inner">
+        <textarea id="comment-text" placeholder="Talk yuh talk..." maxlength="280"></textarea>
+        <div class="compose-actions">
+          <span></span>
+          <button class="btn-primary btn-post" onclick="submitComment()">Reply</button>
+        </div>
+      </div>
+    </div>
+    <div id="comments-list" class="comments-list"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- SUPABASE -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>
