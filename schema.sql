@@ -1,5 +1,3 @@
--- Ole Talk Database Schema
--- Run this in Supabase SQL Editor
 
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
@@ -135,8 +133,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure handle_new_user();
 
--- SEED SOME TRENDING TOPICS (optional - just metadata, posts drive hashtags)
--- Trending is computed dynamically from posts in the last 24h
+
 
 -- INDEXES for performance
 create index posts_user_id_idx on posts(user_id);
