@@ -119,17 +119,31 @@ async function signup() {
   if (existing) return showAuthError('That username already taken, try another!');
 
   btn.textContent = 'Joining...';
-  const { error } = await db.auth.signUp({
+  const { data: authData, error } = await db.auth.signUp({
     email,
     password,
     options: { data: { username, display_name: displayName } }
   });
   btn.textContent = 'Join the lime 🎉';
 
-  if (error) showAuthError(error.message);
-  else showAuthError('Check your email to confirm yuh account! 📧');
-}
+  if (error) {
+    showAuthError(error.message);
+    return;
+  }
 
+  if (authData?.user) {
+    const { error: profileError } = await db.from('profiles').insert({
+      id: authData.user.id,
+      username: username,
+      display_name: displayName,
+      bio: '',
+      verified: false
+    });
+    if (profileError) console.error('Profile creation failed:', profileError);
+  }
+
+  showAuthError('Check your email to confirm yuh account! 📧');
+}
 function showAuthError(msg) {
   const el = document.getElementById('auth-error');
   el.textContent = msg;
