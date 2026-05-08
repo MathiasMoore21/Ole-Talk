@@ -611,68 +611,103 @@ async function markAllRead() {
 // ============ PROFILE ============
 async function loadProfilePage(userId, event) {
   event?.stopPropagation();
+  
+  // If no userId provided, use current user
+  if (!userId && currentUser) userId = currentUser.id;
+  if (!userId) {
+    toast('No user found', 'error');
+    return;
+  }
+  
   showPage('profile');
 
   const content = document.getElementById('profile-content');
   content.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
 
-  const [profileRes, postsRes, followersRes, followingRes] = await Promise.all([
-    db.from('profiles').select('*').eq('id', userId).single(),
-    db.from('posts').select(`
-      id, content, created_at, reply_to,
-      profiles:user_id (id, username, display_name, verified),
-      likes (user_id), reposts (user_id), comments (id)
-    `).eq('user_id', userId).is('reply_to', null).order('created_at', { ascending: false }).limit(30),
-    db.from('follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', userId),
-    db.from('follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', userId),
-  ]);
+  try {
+    const [profileRes, postsRes, followersRes, followingRes] = await Promise.all([
+      db.from('profiles').select('*').eq('id', userId).maybeSingle(), // Changed from .single()
+      db.from('posts').select(`
+        id, content, created_at, reply_to,
+        profiles:user_id (id, username, display_name, verified),
+        likes (user_id), reposts (user_id), comments (id)
+      `).eq('user_id', userId).is('reply_to', null).order('created_at', { ascending: false }).limit(30),
+      db.from('follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', userId),
+      db.from('follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', userId),
+    ]);
 
-  const profile = profileRes.data;
-  const posts = postsRes.data || [];
-  const followersCount = followersRes.count || 0;
-  const followingCount = followingRes.count || 0;
+    const profile = profileRes.data;
+    
+    // 🔥 Check if profile exists
+    if (!profile) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🤷</div>
+          <p>Profile not found!<br>This user might not exist yet.</p>
+        </div>`;
+      return;
+    }
 
-  const { data: isFollowingRow } = await db.from('follows')
-    .select('follower_id').eq('follower_id', currentUser.id).eq('following_id', userId).single();
-  const isFollowing = !!isFollowingRow;
+    const posts = postsRes.data || [];
+    const followersCount = followersRes.count || 0;
+    const followingCount = followingRes.count || 0;
 
-  const avatarIdx = hashStr(userId) % 8;
-  const isOwn = userId === currentUser.id;
+    // 🔥 Safely check if following
+    let isFollowing = false;
+    if (currentUser && userId !== currentUser.id) {
+      const { data: isFollowingRow } = await db.from('follows')
+        .select('follower_id')
+        .eq('follower_id', currentUser.id)
+        .eq('following_id', userId)
+        .maybeSingle(); // Changed from .single()
+      isFollowing = !!isFollowingRow;
+    }
 
-  content.innerHTML = `
-    <div class="profile-header">
-      <div class="profile-banner-default"></div>
-      <div class="profile-avatar-wrap">
-        <div class="profile-avatar-img ${AV_COLORS[avatarIdx]}">${AVATARS[avatarIdx]}</div>
+    const avatarIdx = hashStr(userId) % 8;
+    const isOwn = userId === currentUser?.id;
+
+    content.innerHTML = `
+      <div class="profile-header">
+        <div class="profile-banner-default"></div>
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar-img ${AV_COLORS[avatarIdx]}">${AVATARS[avatarIdx]}</div>
+        </div>
+        <div class="profile-actions">
+          ${isOwn
+            ? `<button class="follow-btn" onclick="editProfile()">Edit Profile</button>`
+            : `<button class="follow-btn ${isFollowing ? 'following' : ''}" id="follow-btn-${userId}"
+                onclick="toggleFollow('${userId}', ${isFollowing})">${isFollowing ? 'Following' : 'Follow'}</button>`}
+        </div>
       </div>
-      <div class="profile-actions">
-        ${isOwn
-          ? `<button class="follow-btn" onclick="editProfile()">Edit Profile</button>`
-          : `<button class="follow-btn ${isFollowing ? 'following' : ''}" id="follow-btn-${userId}"
-              onclick="toggleFollow('${userId}', ${isFollowing})">${isFollowing ? 'Following' : 'Follow'}</button>`}
+      <div class="profile-info">
+        <div class="profile-display">${escHtml(profile.display_name || '?')} ${profile.verified ? '✅' : ''}</div>
+        <div class="profile-handle">@${profile.username || '?'}</div>
+        ${profile.bio ? `<div class="profile-bio">${escHtml(profile.bio)}</div>` : ''}
+        <div class="profile-stats">
+          <span class="profile-stat"><strong>${followingCount}</strong> <span>Following</span></span>
+          <span class="profile-stat"><strong>${followersCount}</strong> <span>Followers</span></span>
+          <span class="profile-stat"><strong>${posts.length}</strong> <span>Talks</span></span>
+        </div>
       </div>
-    </div>
-    <div class="profile-info">
-      <div class="profile-display">${escHtml(profile?.display_name || '?')} ${profile?.verified ? '✅' : ''}</div>
-      <div class="profile-handle">@${profile?.username || '?'}</div>
-      ${profile?.bio ? `<div class="profile-bio">${escHtml(profile.bio)}</div>` : ''}
-      <div class="profile-stats">
-        <span class="profile-stat"><strong>${followingCount}</strong> <span>Following</span></span>
-        <span class="profile-stat"><strong>${followersCount}</strong> <span>Followers</span></span>
-        <span class="profile-stat"><strong>${posts.length}</strong> <span>Talks</span></span>
-      </div>
-    </div>
-    <div id="profile-posts-feed" class="feed"></div>
-  `;
+      <div id="profile-posts-feed" class="feed"></div>
+    `;
 
-  const profileFeed = document.getElementById('profile-posts-feed');
-  if (!posts.length) {
-    profileFeed.innerHTML = '<div class="empty-state"><div class="empty-icon">🤫</div><p>No talks yet</p></div>';
-  } else {
-    posts.forEach(p => profileFeed.appendChild(renderPost(p)));
+    const profileFeed = document.getElementById('profile-posts-feed');
+    if (!posts.length) {
+      profileFeed.innerHTML = '<div class="empty-state"><div class="empty-icon">🤫</div><p>No talks yet</p></div>';
+    } else {
+      posts.forEach(p => profileFeed.appendChild(renderPost(p)));
+    }
+    
+  } catch (error) {
+    console.error('Profile load error:', error);
+    content.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <p>Something went wrong loading this profile</p>
+      </div>`;
   }
 }
-
 async function toggleFollow(userId, currently) {
   const btn = document.getElementById(`follow-btn-${userId}`);
 
