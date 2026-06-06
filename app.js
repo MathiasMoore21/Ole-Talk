@@ -1,18 +1,14 @@
-// ============================================================
-//  OLE TALK — app.js
-//  Full Supabase backend integration
-//  Made by: [MATHIAS MOORE] 🇹🇹
-// ============================================================
+// Ole Talk — app.js
+// Supabase backend integration
+// Made by: Mathias Moore 🇹🇹
 
-// ▼▼▼ PASTE YOUR SUPABASE CREDENTIALS HERE ▼▼▼
 const SUPABASE_URL = 'https://bwypwhtztudiroetkfws.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3eXB3aHR6dHVkaXJvZXRrZndzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3NDA1MzEsImV4cCI6MjA5MzMxNjUzMX0.aLfqXX9Yw0v75E-ic67HX_nt6iJkv2dbLfee9HxwbRA';
-// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ============ STATE ============
+// App state
 let currentUser = null;
 let currentProfile = null;
 let currentFeed = 'for-you';
@@ -20,11 +16,11 @@ let activeCommentPostId = null;
 let realtimeChannel = null;
 let searchDebounce = null;
 
-// Trinidadian avatar emojis
+// Avatar emojis and colours for user icons
 const AVATARS = ['🌴', '🦜', '🌺', '🥁', '🎺', '🌊', '🎉', '🦋'];
 const AV_COLORS = ['av-0', 'av-1', 'av-2', 'av-3', 'av-4', 'av-5', 'av-6', 'av-7'];
 
-// Trending hashtags (static seed + dynamic from posts)
+// Static trending hashtags shown on explore page
 const STATIC_TRENDING = [
   { tag: '#Carnival2025', count: '2.4K talks' },
   { tag: '#Doubles', count: '1.8K talks' },
@@ -35,7 +31,17 @@ const STATIC_TRENDING = [
   { tag: '#POS', count: '430 talks' },
 ];
 
+// Full Supabase select string for posts — used everywhere to keep queries consistent
+const POST_SELECT = `
+  id, content, created_at, user_id, reply_to,
+  profiles:user_id (id, username, display_name, verified),
+  likes (user_id),
+  reposts (user_id),
+  comments (id)
+`;
+
 // ============ INIT ============
+
 window.addEventListener('DOMContentLoaded', async () => {
   const { data: { session } } = await db.auth.getSession();
   if (session) {
@@ -45,6 +51,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     showAuth();
   }
 
+  // Listen for auth changes (login, logout, token refresh)
   db.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN') {
       await loadUser(session.user);
@@ -71,6 +78,7 @@ async function loadUser(user) {
 }
 
 // ============ AUTH ============
+
 function showAuth() {
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('app').classList.add('hidden');
@@ -114,8 +122,8 @@ async function signup() {
   if (username.length < 3) return showAuthError('Username must be at least 3 characters');
   if (password.length < 6) return showAuthError('Password must be at least 6 characters');
 
-  // Check username taken
-  const { data: existing } = await db.from('profiles').select('id').eq('username', username).single();
+  // Check if username is already taken
+  const { data: existing } = await db.from('profiles').select('id').eq('username', username).maybeSingle();
   if (existing) return showAuthError('That username already taken, try another!');
 
   btn.textContent = 'Joining...';
@@ -131,19 +139,20 @@ async function signup() {
     return;
   }
 
+  // The DB trigger handles profile creation, but we upsert here as a fallback
   if (authData?.user) {
-    const { error: profileError } = await db.from('profiles').insert({
+    await db.from('profiles').upsert({
       id: authData.user.id,
-      username: username,
+      username,
       display_name: displayName,
       bio: '',
       verified: false
-    });
-    if (profileError) console.error('Profile creation failed:', profileError);
+    }, { onConflict: 'id' });
   }
 
   showAuthError('Check your email to confirm yuh account! 📧');
 }
+
 function showAuthError(msg) {
   const el = document.getElementById('auth-error');
   el.textContent = msg;
@@ -156,6 +165,7 @@ async function logout() {
 }
 
 // ============ NAVIGATION ============
+
 function showPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
@@ -166,10 +176,12 @@ function showPage(page) {
 
   if (page === 'explore') loadExplore();
   if (page === 'notifications') loadNotifications();
-  if (page === 'profile') loadProfilePage(currentUser.id);
+  // Profile page always loads the current user's profile
+  if (page === 'profile') loadProfilePage(currentUser?.id);
 }
 
 // ============ FEED ============
+
 async function switchFeed(type, btn) {
   currentFeed = type;
   document.querySelectorAll('.feed-tab').forEach(t => t.classList.remove('active'));
@@ -179,28 +191,35 @@ async function switchFeed(type, btn) {
 
 async function loadFeed() {
   const feed = document.getElementById('feed');
-  document.getElementById('feed-loading').classList.remove('hidden');
-  feed.innerHTML = '<div class="feed-loading" id="feed-loading"><div class="spinner"></div></div>';
+  feed.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
 
-  let query = db.from('posts')
-    .select(`
-      id, content, created_at, reply_to, repost_of,
-      profiles:user_id (id, username, display_name, verified),
-      likes (user_id),
-      reposts (user_id),
-      comments (id)
-    `)
-    .is('reply_to', null)
+  let query = db
+    .from('posts')
+    .select(POST_SELECT)
+    .is('reply_to', null) // only top-level posts, not replies
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (currentFeed === 'following' && currentUser) {
+    // Get IDs of people we follow
     const { data: followData } = await db
       .from('follows')
       .select('following_id')
       .eq('follower_id', currentUser.id);
+
     const ids = followData?.map(f => f.following_id) || [];
-    ids.push(currentUser.id);
+    ids.push(currentUser.id); // include own posts
+
+    // If not following anyone yet, show empty state
+    if (ids.length === 1) {
+      feed.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🌴</div>
+          <p>Follow some people to see their talks!</p>
+        </div>`;
+      return;
+    }
+
     query = query.in('user_id', ids);
   }
 
@@ -212,17 +231,15 @@ async function loadFeed() {
     feed.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🌴</div>
-        <p>${currentFeed === 'following' ? "Follow some people to see their talks!" : "No talks yet. Be the first!"}</p>
+        <p>${currentFeed === 'following' ? 'Follow some people to see their talks!' : 'No talks yet. Be the first!'}</p>
       </div>`;
     return;
   }
 
-  posts.forEach(post => {
-    feed.appendChild(renderPost(post));
-  });
+  posts.forEach(post => feed.appendChild(renderPost(post)));
 }
 
-function renderPost(post, isDetail = false) {
+function renderPost(post) {
   const profile = post.profiles;
   const likeCount = post.likes?.length || 0;
   const repostCount = post.reposts?.length || 0;
@@ -231,18 +248,20 @@ function renderPost(post, isDetail = false) {
   const reposted = post.reposts?.some(r => r.user_id === currentUser?.id);
   const avatarIdx = hashStr(profile?.id || 'x') % 8;
   const timeAgo = getTimeAgo(post.created_at);
+  // post.user_id tells us if we own this post (needed for delete button)
+  const isOwner = post.user_id === currentUser?.id;
 
   const el = document.createElement('div');
   el.className = 'post-card';
   el.dataset.postId = post.id;
 
   el.innerHTML = `
-    <div class="post-avatar ${AV_COLORS[avatarIdx]}" onclick="loadProfilePage('${profile?.id}', event)">
+    <div class="post-avatar ${AV_COLORS[avatarIdx]}" onclick="goToProfile('${profile?.id}', event)">
       ${AVATARS[avatarIdx]}
     </div>
     <div class="post-body">
       <div class="post-header">
-        <span class="post-display" onclick="loadProfilePage('${profile?.id}', event)">${escHtml(profile?.display_name || 'Unknown')}</span>
+        <span class="post-display" onclick="goToProfile('${profile?.id}', event)">${escHtml(profile?.display_name || 'Unknown')}</span>
         ${profile?.verified ? '<span class="verified-badge" title="Verified">✅</span>' : ''}
         <span class="post-handle">@${profile?.username || '?'}</span>
         <span class="post-time">${timeAgo}</span>
@@ -263,7 +282,7 @@ function renderPost(post, isDetail = false) {
           <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
           <span class="count">${repostCount > 0 ? repostCount : ''}</span>
         </button>
-        ${post.user_id === currentUser?.id ? `
+        ${isOwner ? `
         <button class="action-btn" onclick="deletePost('${post.id}', event)" style="margin-left:auto;max-width:40px;">
           <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
         </button>` : ''}
@@ -274,7 +293,15 @@ function renderPost(post, isDetail = false) {
   return el;
 }
 
+// Navigate to a profile page without losing the event target
+function goToProfile(userId, event) {
+  event?.stopPropagation();
+  if (!userId) return;
+  loadProfilePage(userId);
+}
+
 // ============ POST ACTIONS ============
+
 async function createPost() {
   const text = document.getElementById('compose-text').value.trim();
   if (!text) return;
@@ -285,23 +312,23 @@ async function createPost() {
   const { data, error } = await db
     .from('posts')
     .insert({ user_id: currentUser.id, content: text })
-    .select(`
-      id, content, created_at, user_id, reply_to,
-      profiles:user_id (id, username, display_name, verified),
-      likes (user_id), reposts (user_id), comments (id)
-    `)
+    .select(POST_SELECT)
     .single();
 
   btn.textContent = 'Talk';
   document.getElementById('compose-text').value = '';
   resetCharCounter();
 
-  if (error) { toast('Couldn\'t post, try again', 'error'); return; }
+  if (error) {
+    toast('Couldn\'t post, try again', 'error');
+    return;
+  }
 
+  // Add the new post to the top of the feed with a brief highlight
   const feed = document.getElementById('feed');
   const card = renderPost(data);
-  card.style.borderTop = '2px solid var(--gold)';
-  setTimeout(() => card.style.borderTop = '', 1500);
+  card.style.borderLeft = '3px solid var(--red)';
+  setTimeout(() => (card.style.borderLeft = ''), 1600);
   feed.prepend(card);
   toast('Ole Talk posted! 🗣️', 'success');
 }
@@ -310,11 +337,19 @@ async function createPostFromModal() {
   const text = document.getElementById('modal-compose-text').value.trim();
   if (!text) return;
 
-  const { error } = await db.from('posts').insert({ user_id: currentUser.id, content: text });
+  const { error } = await db
+    .from('posts')
+    .insert({ user_id: currentUser.id, content: text });
+
   document.getElementById('modal-compose-text').value = '';
   closePostModal();
-  if (!error) { toast('Ole Talk posted! 🗣️', 'success'); loadFeed(); }
-  else toast('Couldn\'t post, try again', 'error');
+
+  if (!error) {
+    toast('Ole Talk posted! 🗣️', 'success');
+    loadFeed(); // Reload feed to show the new post
+  } else {
+    toast('Couldn\'t post, try again', 'error');
+  }
 }
 
 async function toggleLike(postId, btn, event) {
@@ -322,21 +357,19 @@ async function toggleLike(postId, btn, event) {
   if (!currentUser) return toast('Log in to like!', 'error');
 
   const liked = btn.classList.contains('liked');
+  const countEl = btn.querySelector('.count');
+  const cur = parseInt(countEl.textContent) || 0;
 
   if (liked) {
     btn.classList.remove('liked');
-    const countEl = btn.querySelector('.count');
-    const cur = parseInt(countEl.textContent) || 0;
     countEl.textContent = cur > 1 ? cur - 1 : '';
     await db.from('likes').delete().match({ user_id: currentUser.id, post_id: postId });
   } else {
     btn.classList.add('liked');
-    const countEl = btn.querySelector('.count');
-    const cur = parseInt(countEl.textContent) || 0;
     countEl.textContent = cur + 1;
     await db.from('likes').insert({ user_id: currentUser.id, post_id: postId });
 
-    // Notify post owner
+    // Notify the post owner (skip if it's our own post)
     const { data: post } = await db.from('posts').select('user_id').eq('id', postId).single();
     if (post && post.user_id !== currentUser.id) {
       await db.from('notifications').insert({
@@ -354,17 +387,15 @@ async function toggleRepost(postId, btn, event) {
   if (!currentUser) return toast('Log in to repost!', 'error');
 
   const reposted = btn.classList.contains('reposted');
+  const countEl = btn.querySelector('.count');
+  const cur = parseInt(countEl.textContent) || 0;
 
   if (reposted) {
     btn.classList.remove('reposted');
-    const countEl = btn.querySelector('.count');
-    const cur = parseInt(countEl.textContent) || 0;
     countEl.textContent = cur > 1 ? cur - 1 : '';
     await db.from('reposts').delete().match({ user_id: currentUser.id, post_id: postId });
   } else {
     btn.classList.add('reposted');
-    const countEl = btn.querySelector('.count');
-    const cur = parseInt(countEl.textContent) || 0;
     countEl.textContent = cur + 1;
     await db.from('reposts').insert({ user_id: currentUser.id, post_id: postId });
     toast('Reposted!', 'success');
@@ -374,22 +405,32 @@ async function toggleRepost(postId, btn, event) {
 async function deletePost(postId, event) {
   event?.stopPropagation();
   if (!confirm('Delete this talk?')) return;
+
   await db.from('posts').delete().eq('id', postId).eq('user_id', currentUser.id);
   document.querySelector(`[data-post-id="${postId}"]`)?.remove();
   toast('Talk deleted', 'success');
 }
 
 // ============ COMMENTS ============
+
 function openCommentModal(postId, event) {
   event?.stopPropagation();
   activeCommentPostId = postId;
-  document.getElementById('comment-modal').classList.remove('hidden');
-  document.getElementById('comment-avatar').className = `compose-avatar ${AV_COLORS[hashStr(currentUser.id) % 8]}`;
-  document.getElementById('comment-avatar').textContent = AVATARS[hashStr(currentUser.id) % 8];
+
+  const modal = document.getElementById('comment-modal');
+  modal.classList.remove('hidden');
+
+  // Set the comment compose avatar
+  const avatarIdx = hashStr(currentUser.id) % 8;
+  const avatarEl = document.getElementById('comment-avatar');
+  avatarEl.className = `compose-avatar ${AV_COLORS[avatarIdx]}`;
+  avatarEl.textContent = AVATARS[avatarIdx];
+
   loadComments(postId);
 }
 
 function closeCommentModal(event) {
+  // If event exists, only close when clicking the overlay backdrop (not the card)
   if (event && event.target !== event.currentTarget) return;
   document.getElementById('comment-modal').classList.add('hidden');
   document.getElementById('comment-text').value = '';
@@ -397,14 +438,24 @@ function closeCommentModal(event) {
 }
 
 async function loadComments(postId) {
-  const { data } = await db.from('comments').select(`
-    id, content, created_at,
-    profiles:user_id (id, username, display_name, verified)
-  `).eq('post_id', postId).order('created_at', { ascending: true });
+  const { data } = await db
+    .from('comments')
+    .select(`
+      id, content, created_at,
+      profiles:user_id (id, username, display_name, verified)
+    `)
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true });
 
   const list = document.getElementById('comments-list');
-  list.innerHTML = data?.length ? '' : '<div class="empty-state" style="padding:24px"><p>No replies yet. Be the first!</p></div>';
-  data?.forEach(c => list.appendChild(renderComment(c)));
+
+  if (!data?.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:24px"><p>No replies yet. Be the first!</p></div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  data.forEach(c => list.appendChild(renderComment(c)));
 }
 
 function renderComment(c) {
@@ -437,29 +488,46 @@ async function submitComment() {
     content: text
   });
 
-  if (!error) {
-    document.getElementById('comment-text').value = '';
-    loadComments(activeCommentPostId);
-    toast('Replied! 💬', 'success');
+  if (error) {
+    toast('Couldn\'t reply, try again', 'error');
+    return;
+  }
 
-    // Notify post owner
-    const { data: post } = await db.from('posts').select('user_id').eq('id', activeCommentPostId).single();
-    if (post && post.user_id !== currentUser.id) {
-      await db.from('notifications').insert({
-        user_id: post.user_id,
-        actor_id: currentUser.id,
-        type: 'comment',
-        post_id: activeCommentPostId
-      });
+  document.getElementById('comment-text').value = '';
+  loadComments(activeCommentPostId);
+  toast('Replied! 💬', 'success');
+
+  // Update comment count on the post card in the feed
+  const postCard = document.querySelector(`[data-post-id="${activeCommentPostId}"]`);
+  if (postCard) {
+    const commentBtn = postCard.querySelectorAll('.action-btn')[1];
+    if (commentBtn) {
+      const countEl = commentBtn.querySelector('.count');
+      const cur = parseInt(countEl.textContent) || 0;
+      countEl.textContent = cur + 1;
     }
+  }
+
+  // Notify post owner
+  const { data: post } = await db.from('posts').select('user_id').eq('id', activeCommentPostId).single();
+  if (post && post.user_id !== currentUser.id) {
+    await db.from('notifications').insert({
+      user_id: post.user_id,
+      actor_id: currentUser.id,
+      type: 'comment',
+      post_id: activeCommentPostId
+    });
   }
 }
 
 // ============ EXPLORE ============
+
 async function loadExplore() {
-  loadTrendingPage();
+  // Reset search input and show trending on explore load
+  document.getElementById('search-input').value = '';
   document.getElementById('search-results').classList.add('hidden');
   document.getElementById('trending-section').classList.remove('hidden');
+  loadTrendingPage();
 }
 
 function loadTrendingPage() {
@@ -480,6 +548,7 @@ function debounceSearch() {
 
 async function performSearch() {
   const q = document.getElementById('search-input').value.trim();
+
   if (!q) {
     document.getElementById('search-results').classList.add('hidden');
     document.getElementById('trending-section').classList.remove('hidden');
@@ -496,36 +565,45 @@ async function performSearch() {
   let postsQuery, usersQuery;
 
   if (isHashtag) {
-    postsQuery = db.from('posts').select(`
-      id, content, created_at, reply_to,
-      profiles:user_id (id, username, display_name, verified),
-      likes (user_id), reposts (user_id), comments (id)
-    `).ilike('content', `%${q}%`).order('created_at', { ascending: false }).limit(30);
+    // Hashtag search: only look through post content
+    postsQuery = db
+      .from('posts')
+      .select(POST_SELECT)
+      .ilike('content', `%${q}%`)
+      .order('created_at', { ascending: false })
+      .limit(30);
   } else {
-    postsQuery = db.from('posts').select(`
-      id, content, created_at, reply_to,
-      profiles:user_id (id, username, display_name, verified),
-      likes (user_id), reposts (user_id), comments (id)
-    `).ilike('content', `%${q}%`).order('created_at', { ascending: false }).limit(20);
+    // Text search: search both posts and user profiles
+    postsQuery = db
+      .from('posts')
+      .select(POST_SELECT)
+      .ilike('content', `%${q}%`)
+      .order('created_at', { ascending: false })
+      .limit(20);
 
-    usersQuery = db.from('profiles').select('*')
+    usersQuery = db
+      .from('profiles')
+      .select('*')
       .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
       .limit(5);
   }
 
-  const [{ data: posts }, usersResult] = await Promise.all([postsQuery, usersQuery || Promise.resolve({ data: null })]);
+  const [{ data: posts }, usersResult] = await Promise.all([
+    postsQuery,
+    usersQuery || Promise.resolve({ data: null })
+  ]);
 
   results.innerHTML = '';
 
+  // Show matching users first
   if (usersResult?.data?.length) {
     const section = document.createElement('div');
     section.innerHTML = '<h2 class="section-title">👤 People</h2>';
-    usersResult.data.forEach(u => {
-      section.appendChild(renderWhoItem(u));
-    });
+    usersResult.data.forEach(u => section.appendChild(renderWhoItem(u)));
     results.appendChild(section);
   }
 
+  // Then show matching posts
   if (posts?.length) {
     const section = document.createElement('div');
     section.innerHTML = '<h2 class="section-title">🗣️ Talks</h2>';
@@ -534,53 +612,75 @@ async function performSearch() {
   }
 
   if (!posts?.length && !usersResult?.data?.length) {
-    results.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>No results for "${escHtml(q)}"</p></div>`;
+    results.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <p>No results for "${escHtml(q)}"</p>
+      </div>`;
   }
 }
 
-async function searchHashtag(tag) {
-  document.getElementById('search-input').value = tag;
-  await performSearch();
+// Search for a hashtag: put the tag in the search bar and run search
+function searchHashtag(tag) {
+  // Switch to explore page first, then update search
   showPage('explore');
+  // Wait a tick for the page to render, then set input and search
+  setTimeout(() => {
+    document.getElementById('search-input').value = tag;
+    performSearch();
+  }, 50);
 }
 
 // ============ NOTIFICATIONS ============
+
 async function loadNotifications() {
   const list = document.getElementById('notifications-list');
   list.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
 
-  const { data } = await db.from('notifications').select(`
-    id, type, read, created_at,
-    actors:actor_id (username, display_name),
-    post:post_id (content)
-  `).eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(50);
+  const { data } = await db
+    .from('notifications')
+    .select(`
+      id, type, read, created_at,
+      actors:actor_id (username, display_name),
+      post:post_id (content)
+    `)
+    .eq('user_id', currentUser.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
 
-  // Mark as read
-  await db.from('notifications').update({ read: true }).eq('user_id', currentUser.id).eq('read', false);
+  // Mark all as read after fetching
+  await db
+    .from('notifications')
+    .update({ read: true })
+    .eq('user_id', currentUser.id)
+    .eq('read', false);
+
   document.getElementById('notif-count').classList.add('hidden');
 
   list.innerHTML = '';
+
   if (!data?.length) {
     list.innerHTML = '<div class="empty-state"><div class="empty-icon">🔔</div><p>No notifications yet</p></div>';
     return;
   }
 
-  data.forEach(n => {
-    const icons = { like: '❤️', repost: '🔁', follow: '👤', comment: '💬', mention: '📣' };
-    const msgs = {
-      like: `<strong>${n.actors?.display_name}</strong> liked your talk`,
-      repost: `<strong>${n.actors?.display_name}</strong> reposted your talk`,
-      follow: `<strong>${n.actors?.display_name}</strong> started following you`,
-      comment: `<strong>${n.actors?.display_name}</strong> replied to your talk`,
-      mention: `<strong>${n.actors?.display_name}</strong> mentioned you`
-    };
+  const icons = { like: '❤️', repost: '🔁', follow: '👤', comment: '💬', mention: '📣' };
+  const msgs = {
+    like: (name) => `<strong>${name}</strong> liked your talk`,
+    repost: (name) => `<strong>${name}</strong> reposted your talk`,
+    follow: (name) => `<strong>${name}</strong> started following you`,
+    comment: (name) => `<strong>${name}</strong> replied to your talk`,
+    mention: (name) => `<strong>${name}</strong> mentioned you`,
+  };
 
+  data.forEach(n => {
+    const actorName = escHtml(n.actors?.display_name || 'Someone');
     const el = document.createElement('div');
     el.className = `notif-item ${n.read ? '' : 'unread'}`;
     el.innerHTML = `
       <div class="notif-icon">${icons[n.type] || '🔔'}</div>
       <div>
-        <div class="notif-text">${msgs[n.type] || 'New notification'}</div>
+        <div class="notif-text">${msgs[n.type] ? msgs[n.type](actorName) : 'New notification'}</div>
         ${n.post?.content ? `<div class="notif-meta">"${escHtml(n.post.content.slice(0, 60))}${n.post.content.length > 60 ? '...' : ''}"</div>` : ''}
         <div class="notif-meta">${getTimeAgo(n.created_at)}</div>
       </div>
@@ -590,7 +690,8 @@ async function loadNotifications() {
 }
 
 async function checkNotifications() {
-  const { count } = await db.from('notifications')
+  const { count } = await db
+    .from('notifications')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', currentUser.id)
     .eq('read', false);
@@ -603,42 +704,51 @@ async function checkNotifications() {
 }
 
 async function markAllRead() {
-  await db.from('notifications').update({ read: true }).eq('user_id', currentUser.id);
+  await db
+    .from('notifications')
+    .update({ read: true })
+    .eq('user_id', currentUser.id);
+
   document.getElementById('notif-count').classList.add('hidden');
   loadNotifications();
 }
 
 // ============ PROFILE ============
-async function loadProfilePage(userId, event) {
-  event?.stopPropagation();
-  
-  // If no userId provided, use current user
+
+async function loadProfilePage(userId) {
+  // Default to current user if no ID provided
   if (!userId && currentUser) userId = currentUser.id;
   if (!userId) {
     toast('No user found', 'error');
     return;
   }
-  
-  showPage('profile');
+
+  // Show profile page
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-profile').classList.add('active');
+  document.getElementById('nav-profile')?.classList.add('active');
+  document.getElementById('mnav-profile')?.classList.add('active');
 
   const content = document.getElementById('profile-content');
   content.innerHTML = '<div class="feed-loading"><div class="spinner"></div></div>';
 
   try {
+    // Fetch profile, posts, follower count, and following count in parallel
     const [profileRes, postsRes, followersRes, followingRes] = await Promise.all([
-      db.from('profiles').select('*').eq('id', userId).maybeSingle(), // Changed from .single()
-      db.from('posts').select(`
-        id, content, created_at, reply_to,
-        profiles:user_id (id, username, display_name, verified),
-        likes (user_id), reposts (user_id), comments (id)
-      `).eq('user_id', userId).is('reply_to', null).order('created_at', { ascending: false }).limit(30),
+      db.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      db.from('posts')
+        .select(POST_SELECT)
+        .eq('user_id', userId)
+        .is('reply_to', null)
+        .order('created_at', { ascending: false })
+        .limit(30),
       db.from('follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', userId),
       db.from('follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', userId),
     ]);
 
     const profile = profileRes.data;
-    
-    // 🔥 Check if profile exists
+
     if (!profile) {
       content.innerHTML = `
         <div class="empty-state">
@@ -652,15 +762,16 @@ async function loadProfilePage(userId, event) {
     const followersCount = followersRes.count || 0;
     const followingCount = followingRes.count || 0;
 
-    // 🔥 Safely check if following
+    // Check if current user is following this profile
     let isFollowing = false;
     if (currentUser && userId !== currentUser.id) {
-      const { data: isFollowingRow } = await db.from('follows')
+      const { data: followRow } = await db
+        .from('follows')
         .select('follower_id')
         .eq('follower_id', currentUser.id)
         .eq('following_id', userId)
-        .maybeSingle(); // Changed from .single()
-      isFollowing = !!isFollowingRow;
+        .maybeSingle();
+      isFollowing = !!followRow;
     }
 
     const avatarIdx = hashStr(userId) % 8;
@@ -693,14 +804,15 @@ async function loadProfilePage(userId, event) {
     `;
 
     const profileFeed = document.getElementById('profile-posts-feed');
+
     if (!posts.length) {
       profileFeed.innerHTML = '<div class="empty-state"><div class="empty-icon">🤫</div><p>No talks yet</p></div>';
     } else {
       posts.forEach(p => profileFeed.appendChild(renderPost(p)));
     }
-    
-  } catch (error) {
-    console.error('Profile load error:', error);
+
+  } catch (err) {
+    console.error('Profile load error:', err);
     content.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">⚠️</div>
@@ -708,6 +820,7 @@ async function loadProfilePage(userId, event) {
       </div>`;
   }
 }
+
 async function toggleFollow(userId, currently) {
   const btn = document.getElementById(`follow-btn-${userId}`);
 
@@ -728,31 +841,53 @@ async function toggleFollow(userId, currently) {
       type: 'follow'
     });
   }
-  btn.setAttribute('onclick', `toggleFollow('${userId}', ${!currently})`);
+
+  // Update the onclick with the new follow state (true/false as boolean, not string)
+  btn.onclick = () => toggleFollow(userId, !currently);
 }
 
 function editProfile() {
   const bio = prompt('Update your bio:', currentProfile?.bio || '');
-  if (bio === null) return;
-  db.from('profiles').update({ bio }).eq('id', currentUser.id).then(() => {
-    toast('Profile updated! ✨', 'success');
-    loadProfilePage(currentUser.id);
-  });
+  if (bio === null) return; // user cancelled
+
+  db.from('profiles')
+    .update({ bio })
+    .eq('id', currentUser.id)
+    .then(() => {
+      if (currentProfile) currentProfile.bio = bio;
+      toast('Profile updated! ✨', 'success');
+      loadProfilePage(currentUser.id);
+    });
 }
 
 // ============ WHO TO FOLLOW ============
-async function loadWhoToFollow() {
-  const { data: followingData } = await db.from('follows').select('following_id').eq('follower_id', currentUser.id);
-  const followingIds = followingData?.map(f => f.following_id) || [];
-  followingIds.push(currentUser.id);
 
-  const { data: suggestions } = await db.from('profiles')
-    .select('*')
-    .not('id', 'in', `(${followingIds.join(',')})`)
-    .limit(4);
+async function loadWhoToFollow() {
+  // Get the list of people we already follow
+  const { data: followingData } = await db
+    .from('follows')
+    .select('following_id')
+    .eq('follower_id', currentUser.id);
+
+  const followingIds = followingData?.map(f => f.following_id) || [];
+  followingIds.push(currentUser.id); // exclude ourselves
+
+  let query = db.from('profiles').select('*').limit(4);
+
+  // Only exclude followed users if there are any
+  if (followingIds.length > 0) {
+    query = query.not('id', 'in', `(${followingIds.join(',')})`);
+  }
+
+  const { data: suggestions } = await query;
 
   const list = document.getElementById('who-to-follow');
-  if (!suggestions?.length) { list.innerHTML = '<div style="padding:12px 16px;color:var(--text-muted);font-size:0.875rem">No suggestions yet 🤷</div>'; return; }
+
+  if (!suggestions?.length) {
+    list.innerHTML = '<div style="padding:12px 16px;color:var(--text-muted);font-size:0.875rem">No suggestions yet 🤷</div>';
+    return;
+  }
+
   list.innerHTML = '';
   suggestions.forEach(u => list.appendChild(renderWhoItem(u)));
 }
@@ -773,13 +908,22 @@ function renderWhoItem(u) {
 }
 
 async function quickFollow(userId, btn) {
-  await db.from('follows').insert({ follower_id: currentUser.id, following_id: userId });
-  btn.textContent = 'Following';
-  btn.classList.add('following');
-  toast('Following! 🎉', 'success');
+  // Prevent double-follow if button already clicked
+  if (btn.classList.contains('following')) return;
+
+  const { error } = await db
+    .from('follows')
+    .insert({ follower_id: currentUser.id, following_id: userId });
+
+  if (!error) {
+    btn.textContent = 'Following';
+    btn.classList.add('following');
+    toast('Following! 🎉', 'success');
+  }
 }
 
-// ============ TRENDING ============
+// ============ TRENDING SIDEBAR ============
+
 function loadTrending() {
   const el = document.getElementById('trending-sidebar');
   el.innerHTML = STATIC_TRENDING.slice(0, 5).map(t => `
@@ -791,24 +935,31 @@ function loadTrending() {
 }
 
 // ============ REALTIME ============
+
 function subscribeRealtime() {
+  // Remove any existing channel before creating a new one
+  if (realtimeChannel) db.removeChannel(realtimeChannel);
+
   realtimeChannel = db
     .channel('public:posts')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async (payload) => {
-      if (payload.new.user_id === currentUser.id) return; // Already added locally
+      // Skip if it's our own post (already shown after createPost)
+      if (payload.new.user_id === currentUser.id) return;
+      // Skip if we're not on the home page
+      if (!document.getElementById('page-home').classList.contains('active')) return;
 
-      const { data: newPost } = await db.from('posts').select(`
-        id, content, created_at, reply_to,
-        profiles:user_id (id, username, display_name, verified),
-        likes (user_id), reposts (user_id), comments (id)
-      `).eq('id', payload.new.id).single();
+      const { data: newPost } = await db
+        .from('posts')
+        .select(POST_SELECT)
+        .eq('id', payload.new.id)
+        .single();
 
-      if (newPost && !newPost.reply_to && document.getElementById('page-home').classList.contains('active')) {
-        const card = renderPost(newPost);
-        document.getElementById('feed').prepend(card);
+      if (newPost && !newPost.reply_to) {
+        document.getElementById('feed').prepend(renderPost(newPost));
       }
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
+      // Show notification badge when we receive a new notification
       if (payload.new.user_id === currentUser.id) {
         checkNotifications();
       }
@@ -817,21 +968,27 @@ function subscribeRealtime() {
 }
 
 // ============ MODALS ============
+
 function openPostModal() {
   document.getElementById('post-modal').classList.remove('hidden');
+
+  // Set the modal compose avatar
   const avatarIdx = hashStr(currentUser.id) % 8;
   const avatar = document.getElementById('modal-avatar');
   avatar.className = `compose-avatar ${AV_COLORS[avatarIdx]}`;
   avatar.textContent = AVATARS[avatarIdx];
+
   setTimeout(() => document.getElementById('modal-compose-text').focus(), 100);
 }
 
 function closePostModal(event) {
   if (event && event.target !== event.currentTarget) return;
   document.getElementById('post-modal').classList.add('hidden');
+  document.getElementById('modal-compose-text').value = '';
 }
 
 // ============ CHAR COUNTER ============
+
 function updateCharCount() {
   const text = document.getElementById('compose-text').value;
   updateRing('char-ring-fill', 'char-count-num', text.length);
@@ -847,8 +1004,9 @@ function updateRing(ringId, numId, len) {
   const circumference = 94.25;
   const offset = circumference - (len / max) * circumference;
   const ring = document.getElementById(ringId);
+  if (!ring) return;
   ring.style.strokeDashoffset = offset;
-  ring.style.stroke = len > 260 ? 'var(--red)' : len > 220 ? '#e67700' : 'var(--gold)';
+  ring.style.stroke = len > 260 ? '#e03131' : len > 220 ? '#e67700' : 'var(--red)';
 
   if (numId) {
     const num = document.getElementById(numId);
@@ -863,12 +1021,15 @@ function updateRing(ringId, numId, len) {
 
 function resetCharCounter() {
   const ring = document.getElementById('char-ring-fill');
-  if (ring) { ring.style.strokeDashoffset = '94.25'; ring.style.stroke = 'var(--gold)'; }
-  const num = document.getElementById('char-count-num');
-  if (num) num.classList.add('hidden');
+  if (ring) {
+    ring.style.strokeDashoffset = '94.25';
+    ring.style.stroke = 'var(--red)';
+  }
+  document.getElementById('char-count-num')?.classList.add('hidden');
 }
 
 // ============ SIDEBAR USER ============
+
 function updateSidebarUser() {
   if (!currentProfile) return;
   const avatarIdx = hashStr(currentUser.id) % 8;
@@ -881,7 +1042,7 @@ function updateSidebarUser() {
 
 function updateComposeAvatars() {
   const avatarIdx = hashStr(currentUser.id) % 8;
-  ['compose-avatar', 'comment-avatar'].forEach(id => {
+  ['compose-avatar'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.className = `compose-avatar ${AV_COLORS[avatarIdx]}`;
@@ -891,12 +1052,14 @@ function updateComposeAvatars() {
 }
 
 // ============ TOAST ============
+
 function toast(msg, type = 'info') {
   const container = document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
   container.appendChild(el);
+
   setTimeout(() => {
     el.style.animation = 'toastOut 0.3s ease forwards';
     setTimeout(() => el.remove(), 300);
@@ -904,22 +1067,24 @@ function toast(msg, type = 'info') {
 }
 
 // ============ HELPERS ============
+
+// Escape HTML to prevent XSS when rendering user content
 function escHtml(str) {
   const d = document.createElement('div');
   d.textContent = str || '';
   return d.innerHTML;
 }
 
+// Format post content: linkify hashtags and @mentions
 function formatContent(text) {
   if (!text) return '';
   let escaped = escHtml(text);
-  // Linkify hashtags
   escaped = escaped.replace(/#(\w+)/g, '<span class="hashtag" onclick="searchHashtag(\'#$1\')">#$1</span>');
-  // Linkify @mentions
-  escaped = escaped.replace(/@(\w+)/g, '<span class="hashtag" style="color:var(--gold)">@$1</span>');
+  escaped = escaped.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
   return escaped;
 }
 
+// Human-friendly relative time (e.g. "5m", "2h", "3d")
 function getTimeAgo(dateStr) {
   const diff = (Date.now() - new Date(dateStr)) / 1000;
   if (diff < 60) return 'now';
@@ -929,13 +1094,16 @@ function getTimeAgo(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-TT', { month: 'short', day: 'numeric' });
 }
 
+// Simple hash of a string to a number (used to pick consistent avatar colours)
 function hashStr(str) {
   let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = (hash << 5) - hash + str.charCodeAt(i);
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+  }
   return Math.abs(hash);
 }
 
-// Close modals on Escape
+// Close modals on Escape key
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closePostModal();

@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗣️</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -15,9 +15,11 @@
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="auth-screen">
   <div class="auth-bg">
+    <div class="flag-stripe stripe-red"></div>
+    <div class="flag-stripe stripe-black"></div>
+    <div class="flag-stripe stripe-white"></div>
     <div class="auth-orb auth-orb-1"></div>
     <div class="auth-orb auth-orb-2"></div>
-    <div class="auth-orb auth-orb-3"></div>
   </div>
   <div class="auth-card">
     <div class="auth-logo">
@@ -31,7 +33,7 @@
       <button class="auth-tab" id="tab-signup" onclick="switchTab('signup')">Sign Up</button>
     </div>
 
-    <!-- LOGIN FORM -->
+    <!-- LOGIN -->
     <div id="login-form" class="auth-form">
       <div class="field-group">
         <label>Email</label>
@@ -47,7 +49,7 @@
       <p class="auth-hint">New here? <a onclick="switchTab('signup')">Create account →</a></p>
     </div>
 
-    <!-- SIGNUP FORM -->
+    <!-- SIGNUP -->
     <div id="signup-form" class="auth-form hidden">
       <div class="field-group">
         <label>Display Name</label>
@@ -81,7 +83,7 @@
 <!-- MAIN APP -->
 <div id="app" class="app hidden">
 
-  <!-- SIDEBAR LEFT -->
+  <!-- LEFT SIDEBAR -->
   <aside class="sidebar-left">
     <div class="sidebar-logo">
       <span class="logo-icon">🗣️</span>
@@ -110,7 +112,7 @@
 
     <button class="btn-post-cta" onclick="openPostModal()">Lemme Talk 🗣️</button>
 
-    <div class="sidebar-user" id="sidebar-user">
+    <div class="sidebar-user">
       <div class="sidebar-avatar" id="sidebar-avatar"></div>
       <div class="sidebar-user-info">
         <span class="sidebar-display" id="sidebar-display"></span>
@@ -123,7 +125,7 @@
   <!-- MAIN CONTENT -->
   <main class="main-content">
 
-    <!-- HOME PAGE -->
+    <!-- HOME -->
     <div id="page-home" class="page active">
       <div class="page-header">
         <h1>Home</h1>
@@ -133,7 +135,6 @@
         </div>
       </div>
 
-      <!-- COMPOSE BOX -->
       <div class="compose-box" id="compose-box">
         <div class="compose-avatar" id="compose-avatar"></div>
         <div class="compose-inner">
@@ -153,15 +154,12 @@
         </div>
       </div>
 
-      <!-- FEED -->
       <div id="feed" class="feed">
-        <div class="feed-loading" id="feed-loading">
-          <div class="spinner"></div>
-        </div>
+        <div class="feed-loading"><div class="spinner"></div></div>
       </div>
     </div>
 
-    <!-- EXPLORE PAGE -->
+    <!-- EXPLORE -->
     <div id="page-explore" class="page">
       <div class="page-header">
         <h1>Explore</h1>
@@ -177,7 +175,7 @@
       <div id="search-results" class="feed hidden"></div>
     </div>
 
-    <!-- NOTIFICATIONS PAGE -->
+    <!-- NOTIFICATIONS -->
     <div id="page-notifications" class="page">
       <div class="page-header">
         <h1>Alerts</h1>
@@ -188,7 +186,7 @@
       </div>
     </div>
 
-    <!-- PROFILE PAGE -->
+    <!-- PROFILE -->
     <div id="page-profile" class="page">
       <div id="profile-content">
         <div class="feed-loading"><div class="spinner"></div></div>
@@ -230,7 +228,7 @@
   </nav>
 </div>
 
-<!-- POST MODAL (mobile compose) -->
+<!-- POST MODAL -->
 <div id="post-modal" class="modal-overlay hidden" onclick="closePostModal(event)">
   <div class="modal-card">
     <div class="modal-header">
@@ -261,7 +259,6 @@
       <button class="modal-close" onclick="closeCommentModal()">✕</button>
       <span class="modal-title">Reply</span>
     </div>
-    <div id="comment-original-post"></div>
     <div class="compose-box no-border">
       <div class="compose-avatar" id="comment-avatar"></div>
       <div class="compose-inner">
