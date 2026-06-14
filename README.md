@@ -2,7 +2,7 @@
 
 > *Where every Trini finds their voice.*
 
-A Trinidadian social platform built with vanilla HTML/CSS/JS and Supabase. Think Twitter, but limed out in T&T flag colours — red, black, and white with a carnival soul.
+A Trinidadian social platform built with HTML/CSS/JS and Supabase. 
 
 ---
 
@@ -25,7 +25,7 @@ Ole Talk is a full social network with:
 
 | Layer | Tool |
 |---|---|
-| Frontend | Vanilla HTML, CSS, JavaScript |
+| Frontend |HTML, CSS, JavaScript |
 | Backend / DB | [Supabase](https://supabase.com) (Postgres + Auth + Realtime) |
 | Fonts | Playfair Display, Nunito (Google Fonts) |
 | Auth | Supabase email/password auth |
